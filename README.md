@@ -33,27 +33,35 @@ La API incluye:
 
 | Tecnología | Propósito |
 |------------|-----------|
-| Python 3.11 | Lenguaje base |
-| FastAPI | Framework Web asíncrono y de alto rendimiento |
+| Python 3.12 | Lenguaje base |
+| FastAPI 0.110+ | Framework Web asíncrono y de alto rendimiento |
 | Uvicorn | Servidor ASGI para FastAPI |
-| Boto3 (AWS SDK) | Integración directa con AWS CloudWatch |
-| Pydantic | Validación de datos y serialización JSON |
+| Poetry | Gestión de dependencias y virtualenvs |
+| Boto3 (AWS SDK) | Integración directa con CloudWatch, DynamoDB, SNS, Lambda |
+| Pydantic v2 | Validación de datos y serialización JSON |
+| structlog | Logging estructurado en formato JSON |
+| httpx | Cliente HTTP asíncrono |
+| Redis | Cache y cola de tareas |
 
 ### **Dependencias Principales**:
 - **fastapi** - API REST
 - **uvicorn** - Servidor web
-- **boto3** - Envío de logs a AWS
+- **boto3** - Integración AWS (CloudWatch, DynamoDB, SNS, SES, Lambda)
 - **pydantic** - Modelado y validación de DTOs
-- **pytest** - Framework de pruebas unitarias
+- **structlog** - Logging JSON estructurado
+- **httpx** - HTTP client async
+- **pytest** + **pytest-asyncio** - Framework de pruebas
+- **ruff** + **black** + **mypy** - Linting y type checking
 
 ----
 
 ## 📦 Requisitos Previos
 
-- Python 3.11 o superior
-- Pip (Gestor de paquetes)
-- Credenciales configuradas de AWS (para emisión de logs a CloudWatch)
+- Python 3.12 o superior
+- Poetry (Gestor de dependencias) o uv
+- Credenciales configuradas de AWS (para CloudWatch, DynamoDB)
 - Docker (Opcional, para ejecución en contenedores)
+- Redis (para cache/queue local)
 
 ## 🚀 Instalación
 
@@ -63,20 +71,25 @@ git clone https://github.com/DevMasters-Aws-Team/Backend.git
 cd Backend
 ```
 
-2. Crea y activa un entorno virtual (recomendado):
+2. Instala dependencias con Poetry:
 ```bash
-python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
+poetry install
 ```
 
-3. Instala las dependencias:
+3. Configura variables de entorno:
 ```bash
-pip install -r requirements.txt
+cp .env.example .env
+# Editar .env con tus credenciales AWS
 ```
 
 4. Ejecuta la aplicación:
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+poetry run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+5. Ejecuta tests:
+```bash
+poetry run pytest tests/ -v --cov=src
 ```
 
 ---
@@ -112,25 +125,32 @@ Alineados completamente con la metodología **Specs Driven Development (SDD)** d
 
 ```text
 Backend/
-├── 📂 .kiro/                         # Fase de Setup / SDD (Definiciones en Markdown)
-│   ├── global_steering.md            # Reglas globales de comportamiento y convenciones
-│   ├── mcp.md                        # Definición (Spec) de los conectores MCP que se usarán
-│   ├── skills.md                     # Definición (Spec) de las Lambdas/Skills de remediación
-│   ├── hooks.md                      # Definición (Spec) de los Git Hooks (ej. pytest pre-commit)
-│   ├── powers.md                     # Definición (Spec) de las capacidades integradas con AWS
-│   └── architecture_specs.md         # Specs técnicos de la API y sus dependencias
+├── 📂 .kiro/steering/                # Fase de Setup / SDD (Definiciones en Markdown)
+│   ├── global_steering.md            # Reglas globales: convenciones Python, formato logs JSON, testing
+│   ├── architecture_specs.md         # Endpoints API + Chaos, modelos DynamoDB, flujo de datos
+│   ├── mcp.md                        # Conectores MCP: CloudWatch, AWS Docs, Code Repo, Knowledge DB
+│   ├── skills.md                     # Skills de remediación: restart, cache, scale, purge, alert
+│   ├── hooks.md                      # Git Hooks (ruff, mypy, pytest) + Agent Hooks (auth, filter, audit)
+│   └── powers.md                     # Permisos IAM por skill (Least Privilege + Boundary Policy)
 │
-├── 📂 .git/hooks/                    # ⚡ Git Hooks (Configurados por la IA en base a hooks.md)
-│   └── pre-commit                    # Hook que corre "pytest" automáticamente al guardar
+├── 📂 src/                           # ⚙️ Código Fuente
+│   ├── main.py                       # FastAPI app entry point
+│   ├── config.py                     # Pydantic BaseSettings
+│   ├── cloudwatch_client.py          # Integración CloudWatch
+│   ├── log_filter.py                 # Filtrado Python ERROR/WARN
+│   ├── ticket_resolver.py            # Auto-resolución tickets (DynamoDB)
+│   ├── 📂 agents/                    # Agentes: monitor, diagnostic, ticket
+│   ├── 📂 skills/                    # Scripts de remediación
+│   ├── 📂 mcp/                       # Servidores MCP (Python)
+│   ├── 📂 models/                    # Pydantic models
+│   ├── 📂 routers/                   # FastAPI routers (health, metrics, alerts, chaos)
+│   └── 📂 utils/                     # Helpers y clasificadores
 │
-├── 📂 src/                           # ⚙️ Código Fuente (Generado en la Fase de Build)
-│   ├── 📂 app/                       # API REST Principal (Microservicios en FastAPI)
-│   ├── 📂 mcp/                       # Implementación en Python de los MCPs definidos en mcp.md
-│   ├── 📂 skills/                    # Implementación en Python de las Skills definidas en skills.md
-│   └── 📂 tests/                     # Tests automatizados (disparados por el hook)
-│
-├── requirements.txt                  # Dependencias de Python
-└── Dockerfile                        # Configuración del contenedor
+├── 📂 tests/                         # Tests (pytest + pytest-asyncio)
+├── pyproject.toml                    # Poetry dependencies
+├── Dockerfile
+├── docker-compose.yml
+└── Makefile                          # Automatización (install, run, test, lint, docker)
 ```
 
 ---
@@ -196,10 +216,23 @@ El desarrollo en equipo sigue el estándar aprendido:
 ### Comandos manuales:
 ```bash
 # Correr tests
-pytest
+poetry run pytest tests/ -v
 
 # Correr tests con cobertura
-pytest --cov=src
+poetry run pytest tests/ --cov=src --cov-fail-under=80
+
+# Linting
+poetry run ruff check src/
+poetry run black --check src/
+poetry run mypy src/
+
+# Fix linting
+poetry run ruff check src/ --fix
+poetry run black src/
+
+# Docker
+make docker-up    # Levantar con docker-compose
+make docker-down  # Detener
 ```
 
 ---
