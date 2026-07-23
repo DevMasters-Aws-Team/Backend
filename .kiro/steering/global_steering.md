@@ -1,65 +1,70 @@
-# Global Steering - Backend (Kiro Monitor Agent)
+# Global Steering - Backend (Microservicios Mock + API Dashboard)
+
+## Rol del Repositorio
+Este backend cumple DOS funciones:
+1. **Simular microservicios de negocio** que emiten logs JSON a CloudWatch (el "paciente" que Kiro vigila)
+2. **Servir la API REST** que el frontend (dashboard + chat) consume para mostrar métricas, alertas y estado
+
+La inteligencia del agente Kiro (Bedrock, MCP, decisiones) NO vive aquí — vive en el repo `kiro-agent`.
 
 ## Stack Tecnológico
-- **Lenguaje:** Python 3.12
+- **Lenguaje:** Python 3.11+
 - **Framework:** FastAPI 0.110+
-- **Gestor de paquetes:** uv + Poetry
+- **Gestor de paquetes:** Poetry
 - **SDK AWS:** boto3 1.34+
-- **Validación:** Pydantic v2
+- **Validación:** Pydantic v2 + pydantic-settings
 - **HTTP async:** httpx
-- **Logging:** structlog (JSON estructurado)
-- **Tareas async:** Celery + Redis
+- **Logging:** structlog (JSON estructurado hacia CloudWatch)
 - **Servidor:** Uvicorn (ASGI)
-- **Contenedores:** Docker + docker-compose
+- **Contenedores:** Docker
+- **Puerto:** 8080
 
-## Convenciones de Código Python
-
-### Estructura de Archivos
+## Estructura de Carpetas
 ```
-src/
-├── main.py                 # FastAPI app entry point
-├── config.py               # Settings con Pydantic BaseSettings
-├── cloudwatch_client.py    # Integración CloudWatch
-├── log_filter.py           # Filtrado Python ERROR/WARN
-├── ticket_resolver.py      # Auto-resolución tickets
-├── agents/
-│   ├── monitor_agent.py    # Agente de vigilancia
-│   ├── diagnostic_agent.py # Agente de diagnóstico
-│   └── ticket_agent.py     # Agente de tickets
-├── skills/
-│   ├── restart_service.py  # Skill: reiniciar ECS task
-│   ├── clear_cache.py      # Skill: limpiar caché
-│   ├── scale_up.py         # Skill: escalar servicio
-│   └── purge_queue.py      # Skill: purgar cola SQS
-├── models/
-│   ├── metrics.py          # Modelos de métricas
-│   ├── alerts.py           # Modelos de alertas
-│   └── tickets.py          # Modelos de tickets
+kiro_agent/
+├── main.py                     # FastAPI app entry point
+├── config.py                   # Settings con Pydantic BaseSettings
 ├── routers/
-│   ├── health.py           # Health check endpoints
-│   ├── metrics.py          # Endpoints de métricas
-│   ├── alerts.py           # Endpoints de alertas
-│   ├── diagnose.py         # Endpoints de diagnóstico
-│   └── chaos.py            # Endpoints Chaos Engineering
+│   ├── health.py               # GET /health
+│   ├── services.py             # GET /api/services (lista microservicios)
+│   ├── metrics.py              # GET /api/metrics (métricas CloudWatch)
+│   ├── alerts.py               # GET /api/alerts (alertas activas)
+│   ├── logs.py                 # GET /api/logs (logs filtrados ERROR/WARN)
+│   ├── tickets.py              # GET/POST /api/tickets (gestión tickets)
+│   ├── knowledge.py            # GET/POST /api/knowledge (base conocimiento)
+│   ├── diagnose.py             # POST /api/diagnose (pide diagnóstico al agente)
+│   └── chaos.py                # POST /chaos/* (inyección de fallos)
+├── services/
+│   ├── cloudwatch_service.py   # Lectura de métricas y logs de CloudWatch
+│   ├── dynamodb_service.py     # CRUD en DynamoDB (tickets, knowledge, incidents)
+│   └── mock_services.py        # Simulación de microservicios de negocio
+├── models/
+│   ├── metrics.py              # Schemas de métricas
+│   ├── alerts.py               # Schemas de alertas
+│   ├── tickets.py              # Schemas de tickets
+│   ├── services.py             # Schemas de servicios
+│   └── logs.py                 # Schemas de logs
+├── middleware/
+│   ├── cors.py                 # CORS config
+│   └── logging_middleware.py   # Structured logging middleware
 └── utils/
-    ├── aws_helpers.py      # Utilidades AWS
-    └── error_classifier.py # Clasificador de errores
+    ├── log_emitter.py          # Emite logs JSON a CloudWatch (simula microservicios)
+    └── error_classifier.py     # Clasifica tipos de error
 ```
 
-### Reglas de Código
-1. **Type hints obligatorios** en todas las funciones y métodos
-2. **Docstrings** en formato Google para clases y funciones públicas
-3. **Pydantic BaseModel** para todos los request/response bodies
-4. **Manejo de errores** con HTTPException y handlers globales
-5. **Logging estructurado** siempre en JSON via structlog
-6. **Async/await** para toda operación I/O (AWS SDK, HTTP, DB)
-7. **Principio DRY:** reutilizar clientes boto3 mediante dependency injection
+## Convenciones de Código
+1. **Type hints obligatorios** en funciones públicas
+2. **Pydantic BaseModel** para request/response
+3. **Async/await** para operaciones I/O
+4. **structlog** para logging JSON estructurado
+5. **HTTPException** para errores con status codes claros
+6. **Dependency injection** para clientes AWS (facilita testing)
 
-### Formato de Logs (Contrato Obligatorio)
-Todos los microservicios emiten logs en formato JSON hacia CloudWatch:
+## Formato de Logs Emitidos (Contrato)
+Todos los microservicios simulados emiten este formato JSON a CloudWatch:
 ```json
 {
-  "timestamp": "2024-01-01T00:30:00Z",
+  "timestamp": "2026-07-23T14:30:00Z",
   "level": "ERROR",
   "service": "user-service",
   "endpoint": "POST /api/users",
@@ -71,25 +76,8 @@ Todos los microservicios emiten logs en formato JSON hacia CloudWatch:
 }
 ```
 
-### Manejo de Errores
-- HTTP 4xx → Error del cliente, loguear como WARN
-- HTTP 5xx → Error del servidor, loguear como ERROR
-- Excepciones no controladas → loguear como CRITICAL + alertar
-
-### Testing
-- Framework: pytest + pytest-asyncio
-- Cobertura mínima: 80%
-- Mocks para boto3 con moto library
-- Tests de integración para endpoints FastAPI con httpx
-
-### Linting y Formato
-- Formatter: black
-- Linter: ruff
-- Type checker: mypy
-- Pre-commit hooks obligatorios
-
-## Principios de Diseño
-- **Zero falsos positivos:** Solo actuar sobre métricas reales (HTTP 500, 401, 503, timeouts)
-- **Filtrado Python:** Solo procesar logs ERROR y WARN (reducir costos ~80%)
-- **Least Privilege IAM:** Cada skill solo tiene los permisos mínimos necesarios
-- **Idempotencia:** Toda acción de remediación debe ser idempotente
+## Principios
+- **El backend NO razona ni decide** — solo emite datos y sirve información
+- **Zero falsos positivos en simulación** — los Chaos endpoints generan errores reales (500, 503)
+- **Logs siempre en JSON** — CloudWatch los indexa correctamente
+- **CORS habilitado** para el frontend en localhost:5173 y producción
