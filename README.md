@@ -2,181 +2,240 @@
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue?style=for-the-badge&logo=python)
+![Python](https://img.shields.io/badge/Python-3.12+-blue?style=for-the-badge&logo=python)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=for-the-badge&logo=fastapi)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker)
 ![AWS](https://img.shields.io/badge/AWS-CloudWatch-orange?style=for-the-badge&logo=amazon-aws)
 
-**API REST: Microservicios mock + Endpoints para Dashboard de Observabilidad**
+**Generador de logs sinteticos e-commerce + integracion con AWS CloudWatch Logs**
 
 </div>
 
 ---
 
-## 🚀 Quick Start (3 comandos)
+## Quick Start
 
 ### Prerequisitos
-- Python 3.11 o superior ([descargar](https://www.python.org/downloads/) — marcar "Add to PATH")
 
-### Levantar el proyecto
+- Python 3.12 o superior ([descargar](https://www.python.org/downloads/) -- marcar "Add to PATH")
+- Poetry (se instala automaticamente en el paso 2)
+- Credenciales AWS con acceso a CloudWatch Logs (para envio real de logs)
+
+### 1. Clonar e ir al directorio
 
 ```bash
-# 1. Clonar e ir al directorio
 git clone https://github.com/DevMasters-Aws-Team/Backend.git
 cd Backend
-
-# 2. Instalar Poetry + dependencias
-python -m pip install poetry
-python -m poetry lock
-python -m poetry install
-
-# 3. Levantar el servidor
-python -m poetry run python -m uvicorn kiro_agent.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-**¡Listo!** Abre http://localhost:8080/docs para la documentación interactiva (Swagger UI).
+### 2. Instalar dependencias
 
-> **Nota Windows:** Si PowerShell bloquea scripts, ejecuta primero:
+```bash
+python -m pip install poetry
+python -m poetry install
+```
+
+### 3. Configurar variables de entorno
+
+```bash
+copy .env.example .env
+```
+
+Editar `.env` con tus credenciales AWS reales:
+
+```
+ENVIRONMENT=dev
+SERVER_PORT=8000
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=tu_access_key_aqui
+AWS_SECRET_ACCESS_KEY=tu_secret_key_aqui
+LOG_GROUP_NAME=/kiro/microservices/backend
+```
+
+> Las credenciales AWS son necesarias para enviar logs a CloudWatch. Sin ellas el backend funciona pero no envia nada a AWS.
+
+### 4. Levantar el servidor
+
+```bash
+python -m poetry run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 5. Verificar que funciona
+
+Abrir en el navegador:
+
+- `http://localhost:8000/api/health` -- debe devolver JSON con status OK
+- `http://localhost:8000/docs` -- Swagger UI con todos los endpoints
+
+> **Nota Windows:** Si PowerShell bloquea scripts, ejecutar primero:
 > ```powershell
 > Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 > ```
 
 ---
 
-## 📡 Endpoints Disponibles
+## Arquitectura del flujo de logs
 
-### Base URL: `http://localhost:8080`
-
-| Ruta | Método | Descripción |
-|------|--------|-------------|
-| `/health` | GET | Health check del servidor |
-| `/api/services` | GET | Lista microservicios monitoreados |
-| `/api/services/{name}` | GET | Estado de un servicio específico |
-| `/api/metrics` | GET | Métricas globales (error rate, latencia, uptime) |
-| `/api/metrics/{name}` | GET | Métricas históricas por servicio |
-| `/api/alerts` | GET | Alertas activas (filtrable por severity/service) |
-| `/api/alerts/{id}` | GET | Detalle de alerta con request/response |
-| `/api/logs` | GET | Logs filtrados ERROR/WARN |
-| `/api/tickets` | GET | Lista de tickets de incidencia |
-| `/api/tickets/{id}` | GET | Detalle de un ticket |
-| `/api/tickets/resolve` | POST | Auto-resolver un ticket |
-| `/api/knowledge` | GET | Base de conocimiento de errores |
-| `/api/knowledge` | POST | Agregar error conocido |
-| `/api/diagnose` | POST | Solicitar diagnóstico de un error |
-| `/chaos/timeout` | POST | Inyectar database timeout |
-| `/chaos/error500` | POST | Forzar HTTP 500 |
-| `/chaos/error503` | POST | Simular Service Unavailable |
-| `/chaos/cascade` | POST | Fallo en cascada multi-servicio |
-| `/chaos/history` | GET | Historial de fallos inyectados |
-
-### Ejemplo: Solicitar diagnóstico
-```bash
-curl -X POST http://localhost:8080/api/diagnose \
-  -H "Content-Type: application/json" \
-  -d '{"service": "user-service", "error_type": "TimeoutError", "trace_id": "trace-abc123"}'
 ```
-
-### Ejemplo: Inyectar fallo (Chaos)
-```bash
-curl -X POST http://localhost:8080/chaos/timeout \
-  -H "Content-Type: application/json" \
-  -d '{"service": "payment-service", "duration_ms": 30000}'
+Backend (FastAPI)             AWS CloudWatch               Agente (otro repo)
+   Genera logs sinteticos  -->  Recibe los logs        -->  Lee y analiza logs
+   y los envia cada 5 seg      en /kiro/microservices/     y da respuestas
+                               backend
 ```
 
 ---
 
-## 🏗️ Estructura del Proyecto
+## Endpoints Disponibles
+
+### Base URL: `http://localhost:8000`
+
+#### Microservicios E-Commerce
+
+| Ruta | Metodo | Descripcion |
+|------|--------|-------------|
+| `/api/health` | GET | Health check |
+| `/api/v1/auth/login` | POST | Login de usuario (JWT mock) |
+| `/api/v1/biometric/verify` | POST | Verificacion biometrica |
+| `/api/v1/products` | GET | Listar productos |
+| `/api/v1/inventory/reserve` | POST | Reservar inventario |
+| `/api/v1/address/validate` | POST | Validar direccion de envio |
+| `/api/v1/purchase/checkout` | POST | Checkout de orden |
+| `/api/v1/sales/pay` | POST | Procesar pago |
+| `/api/v1/notifications/email` | POST | Enviar email de notificacion |
+
+#### Simulador de Trafico
+
+| Ruta | Metodo | Descripcion |
+|------|--------|-------------|
+| `/api/simulator/start` | POST | Iniciar generador de trafico (5 RPS default) |
+| `/api/simulator/stop` | POST | Detener generador de trafico |
+| `/api/simulator/status` | GET | Estado del simulador |
+| `/api/simulator/generate-burst` | POST | Generar ráfaga de N logs |
+
+#### Chaos Engineering
+
+| Ruta | Metodo | Descripcion |
+|------|--------|-------------|
+| `/chaos/timeout` | POST | Inyectar timeout de base de datos |
+| `/chaos/error500` | POST | Forzar HTTP 500 |
+
+#### Inspector de Logs (in-memory)
+
+| Ruta | Metodo | Descripcion |
+|------|--------|-------------|
+| `/api/logs` | GET | Consultar logs en memoria |
+
+### Ejemplo: Iniciar trafico simulado
+
+```bash
+curl -X POST http://localhost:8000/api/simulator/start
+```
+
+### Ejemplo: Generar burst de 100 logs
+
+```bash
+curl -X POST http://localhost:8000/api/simulator/generate-burst
+```
+
+### Ejemplo: Ver logs en memoria
+
+```bash
+curl http://localhost:8000/api/logs
+```
+
+---
+
+## Estructura del Proyecto
 
 ```
 Backend/
-├── .kiro/steering/              # SDD Specs (definiciones previas al código)
-│   ├── global_steering.md       # Convenciones y stack
-│   ├── architecture_specs.md    # Endpoints y modelos de datos
-│   ├── mcp.md                   # Conectores MCP
-│   ├── skills.md                # Skills de remediación
-│   ├── hooks.md                 # Hooks de desarrollo y runtime
-│   └── powers.md                # Permisos IAM
-│
-├── kiro_agent/                  # Código fuente
-│   ├── main.py                  # FastAPI app + routers
+├── src/
+│   ├── main.py                  # FastAPI app, CORS, startup/shutdown
 │   ├── config.py                # Variables de entorno (Pydantic Settings)
-│   ├── routers/                 # Endpoints organizados por dominio
-│   │   ├── health.py
-│   │   ├── services.py
-│   │   ├── metrics.py
-│   │   ├── alerts.py
-│   │   ├── logs.py
-│   │   ├── tickets.py
-│   │   ├── knowledge.py
-│   │   ├── diagnose.py
-│   │   └── chaos.py
-│   └── models/                  # Pydantic schemas
-│       └── services.py
-│
-├── Docs/                        # Documentación técnica
-│   ├── GUIA_IMPLEMENTACION_AWS.md
-│   ├── KIRO_SPEC_PRESENTATION.md
-│   └── SPEC_DRIVEN_DEVELOPMENT_BLUEPRINT.md
-│
+│   ├── cloudwatch_client.py     # Cliente CloudWatch (buffer + flush cada 5s)
+│   ├── traffic_generator.py     # Generador de trafico sintetico
+│   ├── user_faker.py            # Generador de usuarios fake
+│   ├── routers/
+│   │   ├── health.py            # GET /api/health
+│   │   ├── e_commerce.py        # 8 endpoints e-commerce
+│   │   ├── chaos.py             # Inyeccion de fallos
+│   │   ├── simulator.py         # Control del simulador
+│   │   └── logs.py              # Inspector de logs en memoria
+│   ├── models/
+│   │   ├── domain.py            # Modelos de dominio e-commerce
+│   │   └── logs.py              # Modelos de logs estructurados
+│   └── utils/
+│       └── aws_helpers.py       # Factory de clientes boto3
+├── tests/                       # Suite de tests (pytest)
 ├── pyproject.toml               # Dependencias (Poetry)
+├── poetry.lock                  # Versiones lockeadas
 ├── Dockerfile                   # Container para deploy
+├── docker-compose.yml           # Docker Compose
+├── apprunner.yaml               # AWS App Runner config
 ├── Makefile                     # Comandos automatizados
-├── .env.example                 # Variables de entorno (template)
+├── .env.example                 # Template de variables de entorno
 └── README.md                    # Este archivo
 ```
 
 ---
 
-## ⚙️ Configuración
+## Configuracion
 
-Copia `.env.example` a `.env` para personalizar:
+### Variables de entorno (`.env`)
 
-```bash
-copy .env.example .env
-```
-
-| Variable | Descripción | Default |
+| Variable | Descripcion | Default |
 |----------|-------------|---------|
-| `AWS_REGION` | Región AWS | `us-east-1` |
 | `ENVIRONMENT` | Entorno (dev/prod) | `dev` |
-| `SERVER_PORT` | Puerto del servidor | `8080` |
-| `CORS_ORIGINS` | Orígenes permitidos | `localhost:5173,3000` |
-| `AGENT_ENDPOINT` | URL del agente Kiro | `http://localhost:8081` |
+| `SERVER_PORT` | Puerto del servidor | `8000` |
+| `AWS_REGION` | Region AWS | `us-east-1` |
+| `AWS_ACCESS_KEY_ID` | Access key AWS | `mock_key` |
+| `AWS_SECRET_ACCESS_KEY` | Secret key AWS | `mock_secret` |
+| `LOG_GROUP_NAME` | Nombre del Log Group en CloudWatch | `/kiro/microservices/backend` |
+
+### Flush automatico a CloudWatch
+
+El backend envia logs a CloudWatch automaticamente cada 5 segundos. Al iniciar:
+
+1. Verifica/crea el Log Group en CloudWatch
+2. Inicia un background task que hace flush cada 5 segundos
+3. Al cerrar el servidor, hace un flush final
 
 ---
 
-## 🐳 Docker
+## Docker
 
 ```bash
-# Construir
+# Construir imagen
 docker build -t kiro-backend:latest .
 
 # Ejecutar
-docker run -p 8080:8080 --env-file .env kiro-backend:latest
+docker run -p 8000:8000 --env-file .env kiro-backend:latest
+
+# O con Docker Compose
+docker-compose up -d
 ```
 
 ---
 
-## 🧪 Tests
+## Tests
 
 ```bash
-python -m poetry run python -m pytest tests/ -v
+python -m poetry run pytest tests/ -v --cov=src --cov-fail-under=80
 ```
 
 ---
 
-## 📋 Comandos Makefile
-
-Si tienes `make` disponible:
+## Comandos Makefile
 
 ```bash
-make install      # Instalar dependencias
-make dev          # Levantar en desarrollo
-make test         # Correr tests
-make lint         # Verificar código
-make lint-fix     # Corregir linting
-make docker-build # Build Docker
-make clean        # Limpiar cache
+make install       # Instalar dependencias
+make run           # Levantar servidor en desarrollo (port 8000)
+make test          # Correr tests
+make lint          # Verificar codigo (ruff + black + mypy)
+make format        # Auto-formatear codigo
+make docker-build  # Build imagen Docker
+make docker-up     # Levantar con Docker Compose
+make docker-down   # Detener Docker Compose
 ```
 
 ---
