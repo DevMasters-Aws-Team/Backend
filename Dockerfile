@@ -1,20 +1,20 @@
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim
 
 WORKDIR /app
-RUN pip install --no-cache-dir poetry
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_VERSION=1.8.2 \
+    POETRY_VIRTUALENVS_CREATE=false
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir "poetry==$POETRY_VERSION"
 
 COPY pyproject.toml poetry.lock* README.md /app/
-COPY kiro_agent/ /app/kiro_agent/
+RUN poetry install --no-root --no-dev
 
-RUN poetry config virtualenvs.create false \
-    && poetry install --no-dev --no-interaction --no-ansi
+COPY src/ /app/src/
 
-FROM python:3.11-slim AS runner
-WORKDIR /app
+EXPOSE 8000
 
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-COPY . /app
-
-EXPOSE 8080
-CMD ["uvicorn", "kiro_agent.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,31 +1,28 @@
-.PHONY: install dev test lint lint-fix docker-build docker-run clean
+.PHONY: install run test lint format docker-build docker-up docker-down
 
 install:
 	poetry install
 
-dev:
-	poetry run uvicorn kiro_agent.main:app --host 0.0.0.0 --port 8080 --reload
+run:
+	poetry run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 test:
-	poetry run pytest tests/ -v
-
-test-cov:
-	poetry run pytest tests/ --cov=kiro_agent --cov-report=html
+	poetry run pytest tests/ -v --cov=src --cov-fail-under=80
 
 lint:
-	poetry run ruff check kiro_agent/
-	poetry run black --check kiro_agent/
+	poetry run ruff check src/
+	poetry run black --check src/
+	poetry run mypy src/ --ignore-missing-imports
 
-lint-fix:
-	poetry run ruff check kiro_agent/ --fix
-	poetry run black kiro_agent/
+format:
+	poetry run ruff check src/ --fix
+	poetry run black src/
 
 docker-build:
-	docker build -t kiro-backend:latest .
+	docker build -t kiro-log-generator .
 
-docker-run:
-	docker run -p 8080:8080 --env-file .env kiro-backend:latest
+docker-up:
+	docker-compose up -d
 
-clean:
-	rm -rf .pytest_cache .coverage htmlcov dist build *.egg-info
-	find . -type d -name __pycache__ -exec rm -rf {} +
+docker-down:
+	docker-compose down

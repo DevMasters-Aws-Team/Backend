@@ -1,0 +1,21 @@
+version: 1.0
+runtime: python312
+build:
+  commands:
+    build:
+      - pip install poetry
+      - poetry install --no-root --no-dev
+run:
+  command: poetry run uvicorn src.main:app --host 0.0.0.0 --port 8000
+  network:
+    port: 8000
+    env: PORT
+  env:
+    - name: ENVIRONMENT
+      value: production
+    - name: SERVER_PORT
+      value: "8000"
+    - name: AWS_REGION
+      value: us-east-1
+    - name: LOG_GROUP_NAME
+      value: /kiro/microservices/backend
