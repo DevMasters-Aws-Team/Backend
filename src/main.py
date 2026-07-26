@@ -4,10 +4,16 @@ Provides synthetic production traffic generation, 8 domain microservice endpoint
 chaos fault injection, and CloudWatch / Local telemetry inspection.
 """
 
+import asyncio
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
-from src.routers import health, e_commerce, chaos, simulator, logs
+from src.cloudwatch_client import cloudwatch_client
+from src.routers import health, e_commerce, chaos, simulator, logs, services, alerts
+
+logger = structlog.get_logger()
+_flush_task: asyncio.Task = None
 
 app = FastAPI(
     title="E-Commerce Log Generator Microservice",
@@ -28,6 +34,51 @@ app.include_router(e_commerce.router)
 app.include_router(chaos.router)
 app.include_router(simulator.router)
 app.include_router(logs.router)
+app.include_router(services.router)
+app.include_router(alerts.router)
+
+
+def _ensure_log_group_exists():
+    """Creates the CloudWatch Log Group if it doesn't exist."""
+    try:
+        from src.utils.aws_helpers import get_boto3_client
+        client = get_boto3_client('logs')
+        client.create_log_group(logGroupName=settings.LOG_GROUP_NAME)
+        logger.info("log_group_created", log_group=settings.LOG_GROUP_NAME)
+    except client.exceptions.ResourceAlreadyExistsException:
+        pass
+    except Exception as e:
+        logger.warning("log_group_creation_failed", error=str(e))
+
+
+async def _flush_loop():
+    """Background loop that flushes buffered logs to CloudWatch every 5 seconds."""
+    while True:
+        await asyncio.sleep(5)
+        try:
+            count = cloudwatch_client.flush_to_cloudwatch()
+            if count > 0:
+                logger.info("cloudwatch_flush", events_flushed=count)
+        except Exception as e:
+            logger.error("cloudwatch_flush_error", error=str(e))
+
+
+@app.on_event("startup")
+async def startup():
+    global _flush_task
+    _ensure_log_group_exists()
+    _flush_task = asyncio.create_task(_flush_loop())
+    logger.info("flush_loop_started", interval_seconds=5, log_group=settings.LOG_GROUP_NAME)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    global _flush_task
+    if _flush_task:
+        _flush_task.cancel()
+    cloudwatch_client.flush_to_cloudwatch()
+    logger.info("flush_loop_stopped")
+
 
 if __name__ == "__main__":
     import uvicorn
