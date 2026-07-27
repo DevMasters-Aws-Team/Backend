@@ -148,10 +148,98 @@ INITIAL_MICROSERVICES = [
 MICROSERVICES: list[Microservice] = list(INITIAL_MICROSERVICES)
 
 
+def calculate_sparkline(logs_for_service, num_buckets=12) -> list[int]:
+    """Genera dinámicamente un histograma de 12 buckets basado en el tiempo de los logs."""
+    if not logs_for_service:
+        return [0] * num_buckets
+    
+    timestamps = []
+    for l in logs_for_service:
+        try:
+            # Parse timestamp to unix epoch
+            if isinstance(l.timestamp, str):
+                dt = datetime.fromisoformat(l.timestamp.replace("Z", "+00:00"))
+                timestamps.append(dt.timestamp())
+            else:
+                timestamps.append(l.timestamp.timestamp())
+        except Exception:
+            pass
+
+    if not timestamps:
+        return [0] * num_buckets
+
+    min_t, max_t = min(timestamps), max(timestamps)
+    if max_t == min_t:
+        res = [0] * num_buckets
+        res[-1] = len(logs_for_service)
+        return res
+
+    interval = (max_t - min_t) / num_buckets
+    buckets = [0] * num_buckets
+    for t in timestamps:
+        idx = int((t - min_t) / interval)
+        if idx >= num_buckets:
+            idx = num_buckets - 1
+        buckets[idx] += 1
+    return buckets
+
+
 @router.get("/api/services")
 async def get_services() -> list[dict]:
-    """Returns list of microservices for the frontend dashboard."""
-    return [service.model_dump() for service in MICROSERVICES]
+    """
+    Retorna la lista de microservicios para el dashboard.
+    Calcula dinámicamente el estado, latencia y tráfico basándose en los logs de CloudWatch.
+    """
+    from src.routers.logs import get_logs_from_cloudwatch
+    
+    # Obtener los logs más recientes de CloudWatch (hasta 1000)
+    logs = get_logs_from_cloudwatch(limit=1000)
+    
+    # Agrupar logs por servicio
+    logs_by_service = {}
+    for log in logs:
+        if log.service:
+            logs_by_service.setdefault(log.service, []).append(log)
+            
+    response_services = []
+    for service in MICROSERVICES:
+        logs_for_svc = logs_by_service.get(service.name, [])
+        svc_data = service.model_dump()
+        
+        if logs_for_svc:
+            # 1. Total peticiones en la ventana de logs
+            svc_data["reqs"] = f"{len(logs_for_svc)}"
+            
+            # 2. Latencia promedio
+            total_dur = sum(l.duration_ms for l in logs_for_svc)
+            avg_latency = total_dur / len(logs_for_svc)
+            svc_data["latency"] = f"{avg_latency:.0f} ms"
+            
+            # 3. Diagnóstico de Estado y Severidad
+            error_logs = [l for l in logs_for_svc if l.level == "ERROR"]
+            warn_logs = [l for l in logs_for_svc if l.level == "WARN"]
+            
+            if error_logs:
+                svc_data["status"] = "down"
+                svc_data["errorType"] = "danger"
+            elif warn_logs or avg_latency > 400:
+                svc_data["status"] = "warn"
+                svc_data["errorType"] = "warn"
+            else:
+                svc_data["status"] = "ok"
+                svc_data["errorType"] = "none"
+                
+            # 4. Historial Sparkline dinámico en 12 barras
+            svc_data["bars"] = calculate_sparkline(logs_for_svc)
+        else:
+            # Si no hay logs de telemetría reales en CloudWatch para este servicio,
+            # conservamos los valores mockeados iniciales para que el dashboard
+            # mantenga un aspecto premium y no se vacíe por completo.
+            pass
+            
+        response_services.append(svc_data)
+        
+    return response_services
 
 
 @router.post("/api/services")
