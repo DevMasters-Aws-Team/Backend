@@ -1,0 +1,13 @@
+{
+  "name": "Python Lint on Save",
+  "version": "1.0.0",
+  "description": "Ejecuta ruff y black --check cada vez que se guarda un archivo Python",
+  "when": {
+    "type": "fileEdited",
+    "patterns": ["src/**/*.py", "tests/**/*.py"]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "poetry run ruff check src/ && poetry run black --check src/"
+  }
+}

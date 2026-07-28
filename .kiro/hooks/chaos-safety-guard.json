@@ -1,0 +1,13 @@
+{
+  "name": "Chaos Safety Guard",
+  "version": "1.0.0",
+  "description": "Protege los endpoints de Chaos Engineering — solo permite ejecución en ambiente dev/staging, nunca en producción",
+  "when": {
+    "type": "preToolUse",
+    "toolTypes": ["shell"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "VERIFICAR AMBIENTE ANTES DE CONTINUAR: Si la operación involucra endpoints de Chaos Engineering (/chaos/timeout, /chaos/error500, /chaos/error503), confirma que la variable de entorno ENVIRONMENT es 'dev' o 'staging'. Si es 'production', DENEGAR la operación inmediatamente y notificar al usuario. Lee el archivo .env del Backend para verificar."
+  }
+}

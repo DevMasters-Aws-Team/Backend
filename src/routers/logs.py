@@ -21,9 +21,9 @@ _cached_time: float = 0.0
 
 def get_logs_from_cloudwatch(limit: int = 1000) -> List[StructuredLogEvent]:
     """
-    Obtiene los logs reales de AWS CloudWatch.
-    Tiene un caché de 5 segundos para proteger la API y no saturar.
-    Si falla, cae con gracia al buffer de memoria local (fallback).
+    Obtiene logs combinando CloudWatch (persistido) con el buffer en memoria (reciente).
+    Prioriza los logs más recientes del buffer local y complementa con CloudWatch.
+    Tiene caché de 5 segundos para no saturar la API de AWS.
     """
     global _cached_logs, _cached_time
     now = time.time()
@@ -31,10 +31,15 @@ def get_logs_from_cloudwatch(limit: int = 1000) -> List[StructuredLogEvent]:
     if _cached_logs and (now - _cached_time < 5.0):
         return _cached_logs
 
+    # 1. Siempre obtener los logs recientes del buffer en memoria (son los más frescos)
+    from src.cloudwatch_client import cloudwatch_client as cw_client
+    local_logs = cw_client.get_recent_logs(limit=limit)
+
+    # 2. Intentar complementar con logs de CloudWatch (pueden ser más antiguos pero persistidos)
+    cloudwatch_logs: List[StructuredLogEvent] = []
     try:
         client = get_boto3_client("logs")
         
-        # Consultamos a CloudWatch
         response = client.filter_log_events(
             logGroupName=settings.LOG_GROUP_NAME,
             logStreamNames=["e-commerce-stream"],
@@ -42,34 +47,51 @@ def get_logs_from_cloudwatch(limit: int = 1000) -> List[StructuredLogEvent]:
         )
         events = response.get("events", [])
         
-        # Ordenamos los eventos descendentemente por su timestamp nativo (el más nuevo primero)
         events = sorted(events, key=lambda e: e.get("timestamp", 0), reverse=True)
         
-        parsed_logs = []
         for ev in events:
             try:
-                # CloudWatch devuelve el log JSON serializado como string en la propiedad 'message'
                 data = json.loads(ev["message"])
                 log_event = StructuredLogEvent(**data)
-                parsed_logs.append(log_event)
+                cloudwatch_logs.append(log_event)
             except Exception:
-                # Ignorar si no se puede parsear un log individual (por ejemplo, logs de infraestructura no estructurados)
                 pass
                 
-        _cached_logs = parsed_logs
-        _cached_time = now
-        return parsed_logs
-
     except Exception as exc:
         logger.warning(
             "cloudwatch_query_failed",
             error=str(exc),
             error_type=type(exc).__name__,
-            detail="Fallo de conexión o falta de permisos en AWS. Cayendo a fallback local en memoria."
+            detail="CloudWatch no disponible, usando solo buffer local."
         )
-        # Fallback a los logs locales acumulados en memoria por el simulador
-        from src.cloudwatch_client import cloudwatch_client as cw_client
-        return cw_client.get_recent_logs(limit=limit)
+
+    # 3. Combinar: logs locales (frescos) tienen prioridad, luego CloudWatch (persistidos)
+    # Deduplicar por trace_id para evitar repetidos
+    seen_traces: set = set()
+    combined: List[StructuredLogEvent] = []
+    
+    for log in local_logs:
+        tid = getattr(log, 'trace_id', '') or ''
+        if tid and tid in seen_traces:
+            continue
+        if tid:
+            seen_traces.add(tid)
+        combined.append(log)
+    
+    for log in cloudwatch_logs:
+        tid = getattr(log, 'trace_id', '') or ''
+        if tid and tid in seen_traces:
+            continue
+        if tid:
+            seen_traces.add(tid)
+        combined.append(log)
+    
+    # Limitar al número solicitado
+    result = combined[:limit]
+    
+    _cached_logs = result
+    _cached_time = now
+    return result
 
 
 def transform_log_for_frontend(log: StructuredLogEvent) -> dict:

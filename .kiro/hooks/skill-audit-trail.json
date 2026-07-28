@@ -1,0 +1,13 @@
+{
+  "name": "Skill Audit Trail",
+  "version": "1.0.0",
+  "description": "Registra en el audit log cada vez que se ejecuta una skill de remediación",
+  "when": {
+    "type": "postToolUse",
+    "toolTypes": ["shell"]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Si la operación anterior involucró ejecución de alguna skill de remediación (restart_service, scale_up, purge_queue, clear_cache, rotate_connections), registra en el audit trail: timestamp actual UTC, nombre de la skill ejecutada, parámetros utilizados, resultado obtenido (success/failed), y el servicio afectado. Formato JSON estructurado."
+  }
+}

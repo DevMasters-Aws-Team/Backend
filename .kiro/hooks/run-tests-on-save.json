@@ -1,0 +1,13 @@
+{
+  "name": "Run Tests on Save",
+  "version": "1.0.0",
+  "description": "Corre pytest con coverage mínimo 80% al guardar código fuente o tests",
+  "when": {
+    "type": "fileEdited",
+    "patterns": ["src/**/*.py", "tests/**/*.py"]
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "poetry run pytest tests/ -v --cov=src --cov-fail-under=80 --tb=short"
+  }
+}
